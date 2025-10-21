@@ -1,5 +1,5 @@
 from aiogram import Router, F, Bot
-from aiogram.types import CallbackQuery, Message, InputMediaPhoto
+from aiogram.types import CallbackQuery, Message, InputMediaPhoto, InputMediaVideo
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 import json
@@ -56,18 +56,20 @@ async def approve_ad(callback: CallbackQuery, bot: Bot):
         published_text = f"{ad_type_emoji} <b>Объявление</b>\n\n{ad['content']}"
         
         # Получаем изображения если есть
-        images = json.loads(ad["images"]) if ad["images"] else None
+        media_items = await database.get_ad_media(ad_id)
         
-        if images:
-            # Публикуем как медиагруппу
-            media_group = [InputMediaPhoto(media=images[0], caption=published_text)]
-            for img in images[1:]:
-                media_group.append(InputMediaPhoto(media=img))
-            
-            await bot.send_media_group(
-                chat_id=config.PUBLISH_CHANNEL_ID,
-                media=media_group
-            )
+        if media_items:
+            # Публикуем как медиагруппу (фото/видео)
+            first_type, first_id = media_items[0]
+            media_group = [
+                InputMediaPhoto(media=first_id, caption=published_text)
+                if first_type == "photo" else
+                InputMediaVideo(media=first_id, caption=published_text)
+            ]
+            for mtype, fid in media_items[1:]:
+                media_group.append(InputMediaPhoto(media=fid) if mtype == "photo" else InputMediaVideo(media=fid))
+
+            await bot.send_media_group(chat_id=config.PUBLISH_CHANNEL_ID, media=media_group)
         else:
             # Публикуем как обычное сообщение
             await bot.send_message(

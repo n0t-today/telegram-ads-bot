@@ -35,9 +35,20 @@ async def init_db():
                 moderator_id INTEGER,
                 reject_reason TEXT,
                 message_id INTEGER,
-                images JSON,
                 user_notification_message_id INTEGER,
                 FOREIGN KEY (user_id) REFERENCES users (user_id)
+            )
+        """)
+
+        # Таблица медиа для объявлений (нормализованное хранение)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS ad_media (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ad_id INTEGER NOT NULL,
+                media_type TEXT NOT NULL CHECK(media_type IN ('photo','video')),
+                file_id TEXT NOT NULL,
+                position INTEGER NOT NULL,
+                FOREIGN KEY (ad_id) REFERENCES ads (id) ON DELETE CASCADE
             )
         """)
         
@@ -83,18 +94,29 @@ async def get_user(user_id: int):
 # ФУНКЦИИ ДЛЯ РАБОТЫ С ОБЪЯВЛЕНИЯМИ
 # ——————————————————————————————————————————————————————————————
 
-async def create_ad(user_id: int, ad_type: str, content: str, images: list = None):
-    """Создание нового объявления"""
-    import json
+async def create_ad(user_id: int, ad_type: str, content: str, media_items: list | None = None):
+    """Создание нового объявления и сохранение медиа.
+
+    media_items: список кортежей вида (media_type, file_id), где media_type в {'photo','video'}
+    """
     async with aiosqlite.connect(DB_NAME) as db:
-        images_json = json.dumps(images) if images else None
         cursor = await db.execute(
-            """INSERT INTO ads (user_id, ad_type, content, status, images) 
-               VALUES (?, ?, ?, 'pending', ?)""",
-            (user_id, ad_type, content, images_json)
+            """INSERT INTO ads (user_id, ad_type, content, status) 
+               VALUES (?, ?, ?, 'pending')""",
+            (user_id, ad_type, content)
         )
+        ad_id = cursor.lastrowid
+
+        if media_items:
+            for idx, (media_type, file_id) in enumerate(media_items):
+                await db.execute(
+                    """INSERT INTO ad_media (ad_id, media_type, file_id, position)
+                           VALUES (?, ?, ?, ?)""",
+                    (ad_id, media_type, file_id, idx)
+                )
+
         await db.commit()
-        return cursor.lastrowid
+        return ad_id
 
 
 async def get_ad(ad_id: int):
@@ -103,6 +125,18 @@ async def get_ad(ad_id: int):
         db.row_factory = aiosqlite.Row
         async with db.execute("SELECT * FROM ads WHERE id = ?", (ad_id,)) as cursor:
             return await cursor.fetchone()
+
+
+async def get_ad_media(ad_id: int):
+    """Получение списка медиа для объявления, упорядоченных по позиции"""
+    async with aiosqlite.connect(DB_NAME) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT media_type, file_id FROM ad_media WHERE ad_id = ? ORDER BY position ASC",
+            (ad_id,)
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [(row["media_type"], row["file_id"]) for row in rows]
 
 
 async def update_ad_status(ad_id: int, status: str, moderator_id: int = None, reject_reason: str = None):

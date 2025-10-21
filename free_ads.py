@@ -190,7 +190,7 @@ async def process_free_ad(message: Message, state: FSMContext, bot: Bot, ad_text
         user_id=message.from_user.id,
         ad_type="free",
         content=ad_text,
-        images=[mid for _, mid in media_ids] if media_ids else None
+        media_items=media_ids if media_ids else None
     )
     
     # Отправка объявления на модерацию
