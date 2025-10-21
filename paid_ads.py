@@ -1,5 +1,5 @@
 from aiogram import Router, F, Bot
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, InputMediaPhoto
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, InputMediaPhoto, InputMediaVideo
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from collections import defaultdict
@@ -22,7 +22,7 @@ class PaidAdStates(StatesGroup):
     waiting_for_ad = State()
 
 
-# Временное хранилище для медиагрупп
+# Временное хранилище для медиагрупп (photo/video)
 media_groups_paid = defaultdict(list)
 
 
@@ -50,16 +50,25 @@ async def agree_paid_ad(callback: CallbackQuery, state: FSMContext):
     
     template_text = f"""<b>💎 Платное объявление</b>
 
-Отправьте ваше объявление в том виде, в котором оно должно быть опубликовано:
+Имя, если вам есть, что продать, то просто пришлите мне ваше объявление по образцу, а я размещу его 🙌
 
-<b>Варианты:</b>
-• Просто текст (до {config.PAID_AD_LIMIT} символов)
-• Несколько фото (до {config.MAX_IMAGES}) с подписью
+1️⃣ <b>Пришлите Фото/Видео</b>
+До 6 фото или 5 фото и 1 видео. 
 
-<b>Пример с фото:</b>
-Отправьте фото с подписью "Предлагаю услуги профессионального фотографа..."
+2️⃣ <b>Заголовок</b>
+Пример : Продам платье синее Imperial размер S (заголовок до 5 слов❗️)
 
-После одобрения администратор свяжется с вами для организации оплаты."""
+3️⃣ <b>Описание (100 символов)</b>
+Пример:
+• Платье в хорошем состоянии, практически без следов носки, гуляло 1 раз. Небольшой торг.
+
+4️⃣ <b>Цена | Расположение | Контакты</b>
+💰 17.500 рублей
+📍 Королёв , Пр-т Космонавтов 4 В, магазин YOY_store 
+👗 доступна примерка и самовывоз с 12.00 до 20.00
+☎️ +79781111111
+
+<b>Напишите ваше объявление в сообщении ниже 👇</b>"""
     
     await callback.message.answer(template_text)
     await state.set_state(PaidAdStates.waiting_for_ad)
@@ -94,7 +103,7 @@ async def receive_paid_ad_text(message: Message, state: FSMContext, bot: Bot):
     await process_paid_ad(message, state, bot, ad_text, None)
 
 
-@router.message(PaidAdStates.waiting_for_ad, F.photo)
+@router.message(PaidAdStates.waiting_for_ad, F.photo | F.video)
 async def receive_paid_ad_photo(message: Message, state: FSMContext, bot: Bot):
     """Получение объявления с фото"""
     
@@ -116,7 +125,7 @@ async def receive_paid_ad_photo(message: Message, state: FSMContext, bot: Bot):
             await process_media_group_paid_ad(group, state, bot)
             del media_groups_paid[message.media_group_id]
     else:
-        # Одиночное фото
+        # Одиночное медиа (фото/видео)
         ad_text = message.caption or ""
         
         # Проверка лимита символов
@@ -130,10 +139,14 @@ async def receive_paid_ad_photo(message: Message, state: FSMContext, bot: Bot):
             return
         
         # Получаем file_id
-        photo_file_id = message.photo[-1].file_id
-        
+        media_ids = []
+        if message.photo:
+            media_ids.append(("photo", message.photo[-1].file_id))
+        if getattr(message, "video", None):
+            media_ids.append(("video", message.video.file_id))
+
         # Отправляем на модерацию
-        await process_paid_ad(message, state, bot, ad_text, [photo_file_id])
+        await process_paid_ad(message, state, bot, ad_text, media_ids)
 
 
 async def process_media_group_paid_ad(messages: list, state: FSMContext, bot: Bot):
@@ -151,34 +164,49 @@ async def process_media_group_paid_ad(messages: list, state: FSMContext, bot: Bo
         )
         return
     
-    # Проверка количества фото
-    if len(messages) > config.MAX_IMAGES:
+    # Подсчет фото/видео и проверка лимитов
+    num_photos = sum(1 for m in messages if m.photo)
+    num_videos = sum(1 for m in messages if getattr(m, "video", None))
+    total_media = num_photos + num_videos
+
+    if total_media > config.PAID_MAX_MEDIA or num_videos > config.PAID_MAX_VIDEOS:
         await messages[-1].answer(
             f"<b>❌ Ошибка!</b>\n\n"
-            f"Вы отправили {len(messages)} изображений, "
-            f"но максимум — {config.MAX_IMAGES}.\n\n"
-            f"Пожалуйста, отправьте меньше изображений."
+            f"Ограничения платного объявления:\n"
+            f"• До {config.PAID_MAX_MEDIA} медиа всего\n"
+            f"• До {config.PAID_MAX_VIDEOS} видео\n\n"
+            f"У вас: фото {num_photos}, видео {num_videos}."
         )
         return
     
-    # Собираем file_id всех фото
-    images = [msg.photo[-1].file_id for msg in messages]
+    # Собираем media (тип, id)
+    media_ids = []
+    for msg in messages:
+        if msg.photo:
+            media_ids.append(("photo", msg.photo[-1].file_id))
+        if getattr(msg, "video", None):
+            media_ids.append(("video", msg.video.file_id))
     
     # Отправляем на модерацию
-    await process_paid_ad(messages[-1], state, bot, ad_text, images)
+    await process_paid_ad(messages[-1], state, bot, ad_text, media_ids)
 
 
-async def process_paid_ad(message: Message, state: FSMContext, bot: Bot, ad_text: str, images: list = None):
+async def process_paid_ad(message: Message, state: FSMContext, bot: Bot, ad_text: str, media_ids: list = None):
     """Обработка и отправка объявления на модерацию"""
     
     # Показываем превью
     preview_text = "<b>📋 Превью вашего объявления:</b>\n\n" + (ad_text if ad_text else "<i>Без текста</i>")
     
-    if images:
+    if media_ids:
         # Отправляем медиагруппу как превью
-        media_group = [InputMediaPhoto(media=images[0], caption=preview_text)]
-        for img in images[1:]:
-            media_group.append(InputMediaPhoto(media=img))
+        first_type, first_id = media_ids[0]
+        media_group = [
+            InputMediaPhoto(media=first_id, caption=preview_text)
+            if first_type == "photo" else
+            InputMediaVideo(media=first_id, caption=preview_text)
+        ]
+        for typ, mid in media_ids[1:]:
+            media_group.append(InputMediaPhoto(media=mid) if typ == "photo" else InputMediaVideo(media=mid))
         
         await message.answer_media_group(media=media_group)
     else:
@@ -189,11 +217,11 @@ async def process_paid_ad(message: Message, state: FSMContext, bot: Bot, ad_text
         user_id=message.from_user.id,
         ad_type="paid",
         content=ad_text,
-        images=images if images else None
+        images=[mid for _, mid in media_ids] if media_ids else None
     )
     
     # Отправка объявления на модерацию
-    await send_to_moderation(bot, ad_id, message.from_user, ad_text, "платное", images)
+    await send_to_moderation(bot, ad_id, message.from_user, ad_text, "платное", media_ids)
     
     # Уведомление пользователя со смайликом загрузки
     notification_msg = await message.answer(
@@ -211,7 +239,7 @@ async def process_paid_ad(message: Message, state: FSMContext, bot: Bot, ad_text
 # ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
 # ——————————————————————————————————————————————————————————————
 
-async def send_to_moderation(bot: Bot, ad_id: int, user, ad_text: str, ad_type_name: str, images: list = None):
+async def send_to_moderation(bot: Bot, ad_id: int, user, ad_text: str, ad_type_name: str, media_ids: list = None):
     """Отправка объявления в группу модерации"""
     moderation_text = f"""<b>💎 Новое {ad_type_name} объявление #{ad_id}</b>
 
@@ -223,7 +251,7 @@ async def send_to_moderation(bot: Bot, ad_id: int, user, ad_text: str, ad_type_n
 {ad_text if ad_text else '<i>Без текста</i>'}
 
 <b>Символов:</b> {len(ad_text)}
-<b>Изображений:</b> {len(images) if images else 0}"""
+<b>Медиа:</b> {len(media_ids) if media_ids else 0}"""
     
     # Клавиатура для модерации
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -234,10 +262,15 @@ async def send_to_moderation(bot: Bot, ad_id: int, user, ad_text: str, ad_type_n
     ])
     
     # Отправляем с изображениями или без
-    if images:
-        media_group = [InputMediaPhoto(media=images[0], caption=moderation_text)]
-        for img in images[1:]:
-            media_group.append(InputMediaPhoto(media=img))
+    if media_ids:
+        first_type, first_id = media_ids[0]
+        media_group = [
+            InputMediaPhoto(media=first_id, caption=moderation_text)
+            if first_type == "photo" else
+            InputMediaVideo(media=first_id, caption=moderation_text)
+        ]
+        for typ, mid in media_ids[1:]:
+            media_group.append(InputMediaPhoto(media=mid) if typ == "photo" else InputMediaVideo(media=mid))
         
         messages = await bot.send_media_group(
             chat_id=config.MODERATION_GROUP_ID,
