@@ -69,12 +69,7 @@ async def agree_paid_ad(callback: CallbackQuery, state: FSMContext):
 👗 доступна примерка и самовывоз с 12.00 до 20.00
 ☎️ +79781111111
 
-<b>Напишите ваше объявление в сообщении ниже 👇</b>"""
-    
-    await callback.message.answer(template_text)
-    await state.set_state(PaidAdStates.waiting_for_ad)
-    await callback.answer()
-
+После одобрения администратор свяжется с вами для организации оплаты и транспортировки в магазин."""
 
 @router.callback_query(F.data == "cancel_paid_ad", PaidAdStates.waiting_for_agreement)
 async def cancel_paid_ad(callback: CallbackQuery, state: FSMContext):
