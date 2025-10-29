@@ -32,6 +32,7 @@ media_groups = defaultdict(list)
 @router.message(F.text == "📢 Разместить объявление бесплатно")
 async def start_free_ad(message: Message, state: FSMContext):
     """Начало создания бесплатного объявления"""
+    await state.clear()  # Сбрасываем предыдущее состояние
     user_name = message.from_user.first_name or ("@" + message.from_user.username if message.from_user.username else "Пользователь")
     template_text = f"""<b>📢 Бесплатное объявление</b>
 

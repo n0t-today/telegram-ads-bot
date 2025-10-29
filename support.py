@@ -27,6 +27,7 @@ class SupportStates(StatesGroup):
 @router.message(F.text == "❓ Помощь")
 async def start_support(message: Message, state: FSMContext):
     """Начало обращения в поддержку"""
+    await state.clear()  # Сбрасываем предыдущее состояние
     support_text = """<b>❓ Помощь и поддержка</b>
 
 Если у вас возникли вопросы или проблемы, опишите их в следующем сообщении.

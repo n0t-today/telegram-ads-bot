@@ -33,6 +33,7 @@ media_groups_paid = defaultdict(list)
 @router.message(F.text == "💎 Разместить объявление платно")
 async def start_paid_ad(message: Message, state: FSMContext):
     """Начало создания платного объявления"""
+    await state.clear()  # Сбрасываем предыдущее состояние
     # Показываем условия
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✅ Согласен, продолжить", callback_data="agree_paid_ad")],

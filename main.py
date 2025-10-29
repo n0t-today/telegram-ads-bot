@@ -4,6 +4,7 @@ from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command
 from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.fsm.context import FSMContext
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 
@@ -85,10 +86,11 @@ async def cmd_start(message: Message):
 
 
 @dp.message(F.text == "📣 Рекламный канал")
-async def show_ad_channel(message: Message):
+async def show_ad_channel(message: Message, state: FSMContext):
     """Показать ссылку на рекламный канал"""
+    await state.clear()  # Сбрасываем состояние FSM
     await message.answer(
-        f"<b>📣 Наш рекламный канал:</b>\n\n{config.AD_CHANNEL_LINK}",
+        f"<b>📣 Канал с новыми коллекциями:</b>\n\n{config.AD_CHANNEL_LINK}",
         reply_markup=get_main_menu()
     )
 
